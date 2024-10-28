@@ -73,7 +73,7 @@ import { getMinimalMarketV3, MinimalMarketLayoutV3 } from './market'
 export interface MinimalTokenAccountData {
     mint: PublicKey
     address: PublicKey
-    poolkey?: LiquidityPoolKeys
+    poolkeys?: LiquidityPoolKeys
     market?: MinimalMarketLayoutV3
 }
 
@@ -97,12 +97,12 @@ let quoteMinPoolSizeAmount: TokenAmount
 let quoteMaxPoolSizeAmount: TokenAmount
 let processingToken: Boolean = false
 let poolId: PublicKey
-// let tokenAccountInCommon: MinimalTokenAccountData | undefined
-// let accountDataInCommon: LiquidityStateV4 | undefined
+let tokenAccountInCommon: MinimalTokenAccountData | undefined
+let accountDataInCommon: LiquidityStateV4 | undefined
 let idDealt: string = NATIVE_MINT.toBase58()
 let snipeList: string[] = []
-// let timesChecked: number = 0
-// let soldSome: boolean = false
+let timesChecked: number = 0
+let soldSome: boolean = false
 
 
 const solanaConnection = new Connection(RPC_ENDPOINT, {
@@ -176,27 +176,27 @@ async function init(): Promise<void> {
     const wsolBalance = await solanaConnection.getBalance(quoteTokenAssociatedAddress)
 
     console.log(`WSOL Balance: ${wsolBalance}`)
-    if (!(!wsolBalance || wsolBalance == 0))
+    // if (!(!wsolBalance || wsolBalance == 0))
 
-        loadSnipeList();
-
-}
-
-function loadSnipeList() {
-    if (!USE_SNIPE_LIST) {
-        return
-    }
-
-    const count = snipeList.length
-    const data = fs.readFileSync(path.join(__dirname, 'snipe-list.txt'), 'utf-8')
-    snipeList = data.split('\n').map((a) => a.trim())
-        .filter((a) => a)
-
-    if (snipeList.length != count) {
-        console.log(`Loaded snipe list:${snipeList.length}`)
-    }
+    //     loadSnipeList();
 
 }
+
+// function loadSnipeList() {
+//     if (!USE_SNIPE_LIST) {
+//         return
+//     }
+
+//     const count = snipeList.length
+//     const data = fs.readFileSync(path.join(__dirname, 'snipe-list.txt'), 'utf-8')
+//     snipeList = data.split('\n').map((a) => a.trim())
+//         .filter((a) => a)
+
+//     if (snipeList.length != count) {
+//         console.log(`Loaded snipe list:${snipeList.length}`)
+//     }
+
+// }
 
 
 async function trackWallet(connection: Connection): Promise<void> {
@@ -218,95 +218,102 @@ async function trackWallet(connection: Connection): Promise<void> {
     }
 }
 
-function shouldBuy(key: string): boolean {
-    return USE_SNIPE_LIST ? snipeList.includes(key) : ONE_TOKEN_AT_A_TIME ? !processingToken : true
+// function shouldBuy(key: string): boolean {
+//     return USE_SNIPE_LIST ? snipeList.includes(key) : ONE_TOKEN_AT_A_TIME ? !processingToken : true
+// }
+
+
+function saveTokenAccount(mint: PublicKey, accountData: MinimalMarketLayoutV3) {
+    const ata = getAssociatedTokenAddressSync(mint, wallet.publicKey)
+    const tokenAccount = <MinimalTokenAccountData>{
+        address: ata,
+        mint: mint,
+        market: <MinimalMarketLayoutV3>{
+            bids: accountData.bids,
+            asks: accountData.asks,
+            eventQueue: accountData.eventQueue,
+        },
+    }
+    existingTokenAccounts.set(mint.toString(), tokenAccount)
+    return tokenAccount
+
 }
 
 
 
 
+async function buy(accountId: PublicKey, accountData: LiquidityStateV4) {
+    console.log(`Buy action triggered in buy`);
+    console.log("accountId in buy ========", accountId);
+    console.log("accountData in buy =========", accountData)
 
+    try {
+        let tokenAccount = existingTokenAccounts.get(accountData.baseMint.toBase58())
+        tokenAccountInCommon = tokenAccount
+        accountDataInCommon = accountData
+        if (!tokenAccount) {
+            const market = await getMinimalMarketV3(solanaConnection, accountData.marketId, COMMITMENT_LEVEL)
+            tokenAccount = saveTokenAccount(accountData.baseMint, market)
+        }
+        tokenAccount.poolkeys = createPoolKeys(accountId, accountData, tokenAccount.market!)
+        const { innerTransaction } = Liquidity.makeSwapFixedInInstruction(
+            {
+                poolKeys: tokenAccount.poolkeys,
+                userKeys: {
+                    tokenAccountIn: quoteTokenAssociatedAddress,
+                    tokenAccountOut: tokenAccount.address,
+                    owner: wallet.publicKey,
+                },
+                amountIn: quoteAmount.raw,
+                minAmountOut: 0,
+            },
+            tokenAccount.poolkeys.version,
+        )
 
+        const latestBlockhash = await solanaConnection.getLatestBlockhash({
+            commitment: COMMITMENT_LEVEL,
+        })
 
-// async function buy(accountId: PublicKey, accountData: LiquidityStateV4): Promise<void> {
-//     console.log(`Buy action triggered`)
-//     try {
-//         let tokenAccount = existingTokenAccounts.get(accountData.baseMint.toString())
-//         tokenAccountInCommon = tokenAccount
-//         accountDataInCommon = accountData
-//         if (!tokenAccount) {
-//             // it's possible that we didn't have time to fetch open book data
-//             const market = await getMinimalMarketV3(solanaConnection, accountData.marketId, COMMITMENT_LEVEL)
-//             tokenAccount = saveTokenAccount(accountData.baseMint, market)
-//         }
-//         tokenAccount.poolKeys = createPoolKeys(accountId, accountData, tokenAccount.market!)
-//         const { innerTransaction } = Liquidity.makeSwapFixedInInstruction(
-//             {
-//                 poolKeys: tokenAccount.poolKeys,
-//                 userKeys: {
-//                     tokenAccountIn: quoteTokenAssociatedAddress,
-//                     tokenAccountOut: tokenAccount.address,
-//                     owner: wallet.publicKey,
-//                 },
-//                 amountIn: quoteAmount.raw,
-//                 minAmountOut: 0,
-//             },
-//             tokenAccount.poolKeys.version,
-//         )
+        const instructions: TransactionInstruction[] = []
 
-//         const latestBlockhash = await solanaConnection.getLatestBlockhash({
-//             commitment: COMMITMENT_LEVEL,
-//         })
-
-//         const instructions: TransactionInstruction[] = []
-
-//         if (!await solanaConnection.getAccountInfo(quoteTokenAssociatedAddress))
-//             instructions.push(
-//                 createAssociatedTokenAccountInstruction(
-//                     wallet.publicKey,
-//                     quoteTokenAssociatedAddress,
-//                     wallet.publicKey,
-//                     NATIVE_MINT,
-//                 )
-//             )
-//         instructions.push(
-//             SystemProgram.transfer({
-//                 fromPubkey: wallet.publicKey,
-//                 toPubkey: quoteTokenAssociatedAddress,
-//                 lamports: Math.ceil(parseFloat(QUOTE_AMOUNT) * 10 ** 9),
-//             }),
-//             createSyncNativeInstruction(quoteTokenAssociatedAddress, TOKEN_PROGRAM_ID),
-//             createAssociatedTokenAccountIdempotentInstruction(
-//                 wallet.publicKey,
-//                 tokenAccount.address,
-//                 wallet.publicKey,
-//                 accountData.baseMint,
-//             ),
-//             ...innerTransaction.instructions,
-//         )
-
-//         const messageV0 = new TransactionMessage({
-//             payerKey: wallet.publicKey,
-//             recentBlockhash: latestBlockhash.blockhash,
-//             instructions,
-//         }).compileToV0Message()
-//         const transaction = new VersionedTransaction(messageV0)
-//         transaction.sign([wallet, ...innerTransaction.signers])
-
-//         if (JITO_MODE) {
-//             if (JITO_ALL) {
-//                 await jitoWithAxios(transaction, wallet, latestBlockhash)
-//             } else {
-//                 const result = await bundle([transaction], wallet)
-//             }
-//         } else {
-//             await execute(transaction, latestBlockhash)
-//         }
-//     } catch (e) {
-//         logger.debug(e)
-//         console.log(`Failed to buy token, ${accountData.baseMint}`)
-//     }
-// }
+        if (!await solanaConnection.getAccountInfo(quoteTokenAssociatedAddress))
+            instructions.push(
+                createAssociatedTokenAccountInstruction(
+                    wallet.publicKey,
+                    quoteTokenAssociatedAddress,
+                    wallet.publicKey,
+                    NATIVE_MINT,
+                )
+            )
+        instructions.push(
+            SystemProgram.transfer(
+                {
+                    fromPubkey: wallet.publicKey,
+                    toPubkey: quoteTokenAssociatedAddress,
+                    lamports: Math.ceil(parseFloat(QUOTE_AMOUNT) * 10 ** 9),
+                }
+            ),
+            createSyncNativeInstruction(quoteTokenAssociatedAddress, TOKEN_PROGRAM_ID),
+            createAssociatedTokenAccountIdempotentInstruction(
+                wallet.publicKey,
+                tokenAccount.address,
+                wallet.publicKey,
+                accountData.baseMint,
+            ),
+            ...innerTransaction.instructions,
+        )
+        const messageV0 = new TransactionMessage({
+            payerKey: wallet.publicKey,
+            recentBlockhash: latestBlockhash.blockhash,
+            instructions,
+        }).compileToV0Message()
+        const transaction = new VersionedTransaction(messageV0)
+        transaction.sign([wallet, ...innerTransaction.signers])
+    } catch (e) {
+        logger.debug(e)
+        console.log(`Failed to buy token, ${accountData.baseMint}`)
+    }
+}
 
 
 
@@ -323,12 +330,14 @@ function shouldBuy(key: string): boolean {
 export async function processRaydiumPool(id: PublicKey, poolState: LiquidityStateV4) {
     if (idDealt == id.toString()) return
     idDealt = id.toBase58()
+    console.log("idDealt===========", idDealt);
     try {
         const quoteBalance = (await solanaConnection.getBalance(poolState.quoteVault, "processed")) / 10 ** 9
-
-        if (!shouldBuy(poolState.baseMint.toString())) {
-            return
-        }
+        console.log("quoteBalance===========", quoteBalance);
+        console.log("quoteBalanceaddress===========", poolState.quoteVault)
+        // if (!shouldBuy(poolState.baseMint.toString())) {
+        //     return
+        // }
         console.log(`Detected a new pool: https://dexscreener.com/solana/${id.toString()}`)
         if (!quoteMinPoolSizeAmount.isZero()) {
             console.log(`Processing pool: ${id.toString()} with ${quoteBalance.toFixed(2)} ${quoteToken.symbol} in liquidity`)
@@ -361,7 +370,8 @@ export async function processRaydiumPool(id: PublicKey, poolState: LiquidityStat
 
 
     processingToken = true
-    // await buy(id, poolState)
+    console.log("processingToken=======", processingToken);
+    await buy(id, poolState)
 }
 
 
@@ -378,21 +388,17 @@ const run = async () => {
         RAYDIUM_LIQUIDITY_PROGRAM_ID_V4,
         async (updatedAccountInfo) => {
             const key = updatedAccountInfo.accountId.toString();
-            // console.log(key);
             const poolState = LIQUIDITY_STATE_LAYOUT_V4.decode(updatedAccountInfo.accountInfo.data)
             const poolOpenTime = parseInt(poolState.poolOpenTime.toString())
-            // console.log(poolOpenTime);
-            // console.log(runTimestamp);
             const existing = existingLiquidityPools.has(key)
-            // console.log(existing);
             if (poolOpenTime > runTimestamp && !existing) {
                 existingLiquidityPools.add(key)
                 const _ = processRaydiumPool(updatedAccountInfo.accountId, poolState)
                 poolId = updatedAccountInfo.accountId;
-                console.log(poolId);
-                console.log(poolOpenTime);
-                console.log(runTimestamp);
-                console.log(key);
+                console.log("this is poolId=============", poolId);
+                console.log("this is poolOpenTime=============", poolOpenTime);
+                console.log("this is runTimestamp=============", runTimestamp);
+                console.log("this is key=============", key);
             }
 
         },
@@ -423,6 +429,11 @@ const run = async () => {
     )
 
 
+    console.log(`Listening for raydium changes: ${raydiumSubscriptionId}`)
+
+    console.log('----------------------------------------')
+    console.log('Bot is running! Press CTRL + C to stop it.')
+    console.log('----------------------------------------')
 
 }
 

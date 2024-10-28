@@ -66,7 +66,7 @@ import bs58 from 'bs58';
 import * as fs from 'fs'
 import * as path from 'path'
 import readline from 'readline'
-import { getTokenAccounts, } from './liquidity'
+import { getTokenAccounts, RAYDIUM_LIQUIDITY_PROGRAM_ID_V4, OPENBOOK_PROGRAM_ID, createPoolKeys } from './liquidity'
 import { getMinimalMarketV3, MinimalMarketLayoutV3 } from './market'
 
 
@@ -79,8 +79,9 @@ export interface MinimalTokenAccountData {
 
 
 
-
-const existingTokenAccounts: Map<string, MinimalTokenAccountData> = new Map<string, MinimalTokenAccountData>
+const existingLiquidityPools: Set<string> = new Set<string>()
+const existingOpenBookMarkets: Set<string> = new Set<string>()
+const existingTokenAccounts: Map<string, MinimalTokenAccountData> = new Map<string, MinimalTokenAccountData>()
 
 
 
@@ -94,11 +95,11 @@ let quoteTokenAssociatedAddress: PublicKey
 let quoteAmount: TokenAmount
 let quoteMinPoolSizeAmount: TokenAmount
 let quoteMaxPoolSizeAmount: TokenAmount
-// let processingToken: Boolean = false
-// let poolId: PublicKey
+let processingToken: Boolean = false
+let poolId: PublicKey
 // let tokenAccountInCommon: MinimalTokenAccountData | undefined
 // let accountDataInCommon: LiquidityStateV4 | undefined
-// let idDealt: string = NATIVE_MINT.toBase58()
+let idDealt: string = NATIVE_MINT.toBase58()
 let snipeList: string[] = []
 // let timesChecked: number = 0
 // let soldSome: boolean = false
@@ -217,6 +218,152 @@ async function trackWallet(connection: Connection): Promise<void> {
     }
 }
 
+function shouldBuy(key: string): boolean {
+    return USE_SNIPE_LIST ? snipeList.includes(key) : ONE_TOKEN_AT_A_TIME ? !processingToken : true
+}
+
+
+
+
+
+
+
+// async function buy(accountId: PublicKey, accountData: LiquidityStateV4): Promise<void> {
+//     console.log(`Buy action triggered`)
+//     try {
+//         let tokenAccount = existingTokenAccounts.get(accountData.baseMint.toString())
+//         tokenAccountInCommon = tokenAccount
+//         accountDataInCommon = accountData
+//         if (!tokenAccount) {
+//             // it's possible that we didn't have time to fetch open book data
+//             const market = await getMinimalMarketV3(solanaConnection, accountData.marketId, COMMITMENT_LEVEL)
+//             tokenAccount = saveTokenAccount(accountData.baseMint, market)
+//         }
+//         tokenAccount.poolKeys = createPoolKeys(accountId, accountData, tokenAccount.market!)
+//         const { innerTransaction } = Liquidity.makeSwapFixedInInstruction(
+//             {
+//                 poolKeys: tokenAccount.poolKeys,
+//                 userKeys: {
+//                     tokenAccountIn: quoteTokenAssociatedAddress,
+//                     tokenAccountOut: tokenAccount.address,
+//                     owner: wallet.publicKey,
+//                 },
+//                 amountIn: quoteAmount.raw,
+//                 minAmountOut: 0,
+//             },
+//             tokenAccount.poolKeys.version,
+//         )
+
+//         const latestBlockhash = await solanaConnection.getLatestBlockhash({
+//             commitment: COMMITMENT_LEVEL,
+//         })
+
+//         const instructions: TransactionInstruction[] = []
+
+//         if (!await solanaConnection.getAccountInfo(quoteTokenAssociatedAddress))
+//             instructions.push(
+//                 createAssociatedTokenAccountInstruction(
+//                     wallet.publicKey,
+//                     quoteTokenAssociatedAddress,
+//                     wallet.publicKey,
+//                     NATIVE_MINT,
+//                 )
+//             )
+//         instructions.push(
+//             SystemProgram.transfer({
+//                 fromPubkey: wallet.publicKey,
+//                 toPubkey: quoteTokenAssociatedAddress,
+//                 lamports: Math.ceil(parseFloat(QUOTE_AMOUNT) * 10 ** 9),
+//             }),
+//             createSyncNativeInstruction(quoteTokenAssociatedAddress, TOKEN_PROGRAM_ID),
+//             createAssociatedTokenAccountIdempotentInstruction(
+//                 wallet.publicKey,
+//                 tokenAccount.address,
+//                 wallet.publicKey,
+//                 accountData.baseMint,
+//             ),
+//             ...innerTransaction.instructions,
+//         )
+
+//         const messageV0 = new TransactionMessage({
+//             payerKey: wallet.publicKey,
+//             recentBlockhash: latestBlockhash.blockhash,
+//             instructions,
+//         }).compileToV0Message()
+//         const transaction = new VersionedTransaction(messageV0)
+//         transaction.sign([wallet, ...innerTransaction.signers])
+
+//         if (JITO_MODE) {
+//             if (JITO_ALL) {
+//                 await jitoWithAxios(transaction, wallet, latestBlockhash)
+//             } else {
+//                 const result = await bundle([transaction], wallet)
+//             }
+//         } else {
+//             await execute(transaction, latestBlockhash)
+//         }
+//     } catch (e) {
+//         logger.debug(e)
+//         console.log(`Failed to buy token, ${accountData.baseMint}`)
+//     }
+// }
+
+
+
+
+
+
+
+
+
+
+
+
+
+export async function processRaydiumPool(id: PublicKey, poolState: LiquidityStateV4) {
+    if (idDealt == id.toString()) return
+    idDealt = id.toBase58()
+    try {
+        const quoteBalance = (await solanaConnection.getBalance(poolState.quoteVault, "processed")) / 10 ** 9
+
+        if (!shouldBuy(poolState.baseMint.toString())) {
+            return
+        }
+        console.log(`Detected a new pool: https://dexscreener.com/solana/${id.toString()}`)
+        if (!quoteMinPoolSizeAmount.isZero()) {
+            console.log(`Processing pool: ${id.toString()} with ${quoteBalance.toFixed(2)} ${quoteToken.symbol} in liquidity`)
+
+            // if (poolSize.lt(quoteMinPoolSizeAmount)) {
+            if (parseFloat(MIN_POOL_SIZE) > quoteBalance) {
+                console.log(`Skipping pool, smaller than ${MIN_POOL_SIZE} ${quoteToken.symbol}`)
+                console.log(`-------------------------------------- \n`)
+                return
+            }
+        }
+
+        if (!quoteMaxPoolSizeAmount.isZero()) {
+            const poolSize = new TokenAmount(quoteToken, poolState.swapQuoteInAmount, true)
+
+            // if (poolSize.gt(quoteMaxPoolSizeAmount)) {
+            if (parseFloat(MAX_POOL_SIZE) < quoteBalance) {
+                console.log(`Skipping pool, larger than ${MIN_POOL_SIZE} ${quoteToken.symbol}`)
+                console.log(
+                    `Skipping pool, bigger than ${quoteMaxPoolSizeAmount.toFixed()} ${quoteToken.symbol}`,
+                    `Swap quote in amount: ${poolSize.toFixed()}`,
+                )
+                console.log(`-------------------------------------- \n`)
+                return
+            }
+        }
+    } catch (error) {
+        console.log(`Error in getting new pool balance, ${error}`)
+    }
+
+
+    processingToken = true
+    // await buy(id, poolState)
+}
+
 
 
 const run = async () => {
@@ -225,6 +372,55 @@ const run = async () => {
 
     trackWallet(solanaConnection);
 
+    const runTimestamp = Math.floor(new Date().getTime() / 1000);
+    console.log(runTimestamp);
+    const raydiumSubscriptionId = solanaConnection.onProgramAccountChange(
+        RAYDIUM_LIQUIDITY_PROGRAM_ID_V4,
+        async (updatedAccountInfo) => {
+            const key = updatedAccountInfo.accountId.toString();
+            // console.log(key);
+            const poolState = LIQUIDITY_STATE_LAYOUT_V4.decode(updatedAccountInfo.accountInfo.data)
+            const poolOpenTime = parseInt(poolState.poolOpenTime.toString())
+            // console.log(poolOpenTime);
+            // console.log(runTimestamp);
+            const existing = existingLiquidityPools.has(key)
+            // console.log(existing);
+            if (poolOpenTime > runTimestamp && !existing) {
+                existingLiquidityPools.add(key)
+                const _ = processRaydiumPool(updatedAccountInfo.accountId, poolState)
+                poolId = updatedAccountInfo.accountId;
+                console.log(poolId);
+                console.log(poolOpenTime);
+                console.log(runTimestamp);
+                console.log(key);
+            }
+
+        },
+
+        COMMITMENT_LEVEL,
+
+        [
+            { dataSize: LIQUIDITY_STATE_LAYOUT_V4.span },
+            {
+                memcmp: {
+                    offset: LIQUIDITY_STATE_LAYOUT_V4.offsetOf('quoteMint'),
+                    bytes: quoteToken.mint.toBase58(),
+                },
+            },
+            {
+                memcmp: {
+                    offset: LIQUIDITY_STATE_LAYOUT_V4.offsetOf('marketProgramId'),
+                    bytes: OPENBOOK_PROGRAM_ID.toBase58(),
+                },
+            },
+            {
+                memcmp: {
+                    offset: LIQUIDITY_STATE_LAYOUT_V4.offsetOf('status'),
+                    bytes: bs58.encode([6, 0, 0, 0, 0, 0, 0, 0]),
+                },
+            },
+        ],
+    )
 
 
 

@@ -76,6 +76,7 @@ import { BN } from 'bn.js'
 import { bundle } from './executor/jito'
 import { execute } from './executor/legacy'
 import { jitoWithAxios } from './executor/jitoWithAxios'
+import { updateArgs } from '@metaplex-foundation/mpl-token-metadata'
 // import { PoolKeys } from './utils/getPoolKeys'
 
 export interface MinimalTokenAccountData {
@@ -333,15 +334,6 @@ async function buy(accountId: PublicKey, accountData: LiquidityStateV4): Promise
 
 
 
-
-
-
-
-
-
-
-
-
 export async function processRaydiumPool(id: PublicKey, poolState: LiquidityStateV4) {
     if (idDealt == id.toString()) return
     idDealt = id.toBase58()
@@ -387,6 +379,22 @@ export async function processRaydiumPool(id: PublicKey, poolState: LiquidityStat
     processingToken = true
     console.log("processingToken=======", processingToken);
     await buy(id, poolState)
+}
+
+export async function processOpenBookMarket(updatedAccounteInfo: KeyedAccountInfo) {
+    let accountData: MarketStateV3 | undefined
+    try {
+        accountData = MARKET_STATE_LAYOUT_V3.decode(updatedAccounteInfo.accountInfo.data)
+
+        if (existingTokenAccounts.has(accountData.baseMint.toString())) {
+            return
+        }
+
+        saveTokenAccount(accountData.baseMint, accountData)
+    } catch (e) {
+        logger.debug(e)
+        console.log(`Failed to process market, mint:`, accountData?.baseMint)
+    }
 }
 
 
@@ -443,6 +451,28 @@ const run = async () => {
         ],
     )
 
+
+    const openBookSubscriptionId = solanaConnection.onProgramAccountChange(
+        OPENBOOK_PROGRAM_ID,
+        async (updatedAccounteInfo) => {
+            const key = updatedAccounteInfo.accountId.toString()
+            const existing = existingOpenBookMarkets.has(key)
+            if (!existing) {
+                existingOpenBookMarkets.add(key)
+                const _ = processOpenBookMarket(updatedAccounteInfo)
+            }
+        },
+        COMMITMENT_LEVEL,
+        [
+            { dataSize: MARKET_STATE_LAYOUT_V3.span },
+            {
+                memcmp: {
+                    offset: MARKET_STATE_LAYOUT_V3.offsetOf('quoteMint'),
+                    bytes: quoteToken.mint.toBase58(),
+                }
+            }
+        ]
+    )
 
     console.log(`Listening for raydium changes: ${raydiumSubscriptionId}`)
 

@@ -3,8 +3,10 @@
   "scripts": {
     "start": "ts-node index.ts"
   },
+  "exports": {
+    "./dist/lib/client": "./dist/lib/client.js"
+  },
   "dependencies": {
-    "init": "^0.1.2",
     "@metaplex-foundation/mpl-token-metadata": "^3.2.1",
     "@metaplex-foundation/umi": "^0.9.1",
     "@raydium-io/raydium-sdk": "^1.3.1-beta.47",
@@ -15,15 +17,17 @@
     "bn.js": "^5.2.1",
     "bs58": "^5.0.0",
     "dotenv": "^16.4.1",
+    "init": "^0.1.2",
     "jito-ts": "^3.0.1",
     "pino": "^8.18.0",
     "pino-pretty": "^10.3.1",
-    "pino-std-serializers": "^6.2.2"
+    "pino-std-serializers": "^6.2.2",
+    "rpc-websockets": "^9.0.4"
   },
   "devDependencies": {
-    "typescript": "^5.6.3",
     "@types/bn.js": "^5.1.5",
     "prettier": "^3.2.4",
-    "ts-node": "^10.9.2"
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.3"
   }
 }

@@ -1,9 +1,3 @@
-
-
-
-
-
-
 import {
     BigNumberish,
     Liquidity,
@@ -39,36 +33,50 @@ import {
     SystemProgram,
     Transaction,
 } from '@solana/web3.js'
-
-import { logger, } from './utils'
-
-import {
-
-    LOG_LEVEL,
-    PRIVATE_KEY,
-    RPC_ENDPOINT,
-    RPC_WEBSOCKET_ENDPOINT,
-    QUOTE_MINT,
-    QUOTE_AMOUNT,
-    MIN_POOL_SIZE,
-    MAX_POOL_SIZE,
-    USE_SNIPE_LIST,
-    CHECK_IF_MINT_IS_RENOUNCED,
-    CHECK_SOCIAL,
-    ONE_TOKEN_AT_A_TIME,
-    COMMITMENT_LEVEL
-
-
-
-} from './constants'
-
-import bs58 from 'bs58';
+import { getTokenAccounts, RAYDIUM_LIQUIDITY_PROGRAM_ID_V4, OPENBOOK_PROGRAM_ID, createPoolKeys } from './liquidity'
+import { logger } from './utils'
+import { getMinimalMarketV3, MinimalMarketLayoutV3 } from './market'
+// import { MintLayout } from './types'
+import bs58 from 'bs58'
 import * as fs from 'fs'
 import * as path from 'path'
 import readline from 'readline'
-import { getTokenAccounts, RAYDIUM_LIQUIDITY_PROGRAM_ID_V4, OPENBOOK_PROGRAM_ID, createPoolKeys } from './liquidity'
-import { getMinimalMarketV3, MinimalMarketLayoutV3 } from './market'
-
+import {
+    CHECK_IF_MINT_IS_RENOUNCED,
+    COMMITMENT_LEVEL,
+    LOG_LEVEL,
+    MAX_SELL_RETRIES,
+    PRIVATE_KEY,
+    QUOTE_AMOUNT,
+    QUOTE_MINT,
+    RPC_ENDPOINT,
+    RPC_WEBSOCKET_ENDPOINT,
+    SNIPE_LIST_REFRESH_INTERVAL,
+    USE_SNIPE_LIST,
+    MIN_POOL_SIZE,
+    MAX_POOL_SIZE,
+    ONE_TOKEN_AT_A_TIME,
+    PRICE_CHECK_DURATION,
+    PRICE_CHECK_INTERVAL,
+    TAKE_PROFIT1,
+    TAKE_PROFIT2,
+    STOP_LOSS,
+    SELL_SLIPPAGE,
+    CHECK_IF_MINT_IS_MUTABLE,
+    CHECK_IF_MINT_IS_BURNED,
+    JITO_MODE,
+    JITO_ALL,
+    SELL_AT_TP1,
+    JITO_FEE,
+    CHECK_SOCIAL,
+} from './constants'
+// import { clearMonitor, monitor } from './monitor'
+import { BN } from 'bn.js'
+// import { checkBurn, checkMutable, checkSocial } from './tokenFilter'
+import { bundle } from './executor/jito'
+import { execute } from './executor/legacy'
+import { jitoWithAxios } from './executor/jitoWithAxios'
+// import { PoolKeys } from './utils/getPoolKeys'
 
 export interface MinimalTokenAccountData {
     mint: PublicKey
@@ -240,18 +248,17 @@ function saveTokenAccount(mint: PublicKey, accountData: MinimalMarketLayoutV3) {
 }
 
 
-
-
-async function buy(accountId: PublicKey, accountData: LiquidityStateV4) {
+async function buy(accountId: PublicKey, accountData: LiquidityStateV4): Promise<void> {
+    console.log(`Buy action triggered`)
     console.log(`Buy action triggered in buy`);
     console.log("accountId in buy ========", accountId);
     console.log("accountData in buy =========", accountData)
-
     try {
-        let tokenAccount = existingTokenAccounts.get(accountData.baseMint.toBase58())
+        let tokenAccount = existingTokenAccounts.get(accountData.baseMint.toString())
         tokenAccountInCommon = tokenAccount
         accountDataInCommon = accountData
         if (!tokenAccount) {
+            // it's possible that we didn't have time to fetch open book data
             const market = await getMinimalMarketV3(solanaConnection, accountData.marketId, COMMITMENT_LEVEL)
             tokenAccount = saveTokenAccount(accountData.baseMint, market)
         }
@@ -286,13 +293,11 @@ async function buy(accountId: PublicKey, accountData: LiquidityStateV4) {
                 )
             )
         instructions.push(
-            SystemProgram.transfer(
-                {
-                    fromPubkey: wallet.publicKey,
-                    toPubkey: quoteTokenAssociatedAddress,
-                    lamports: Math.ceil(parseFloat(QUOTE_AMOUNT) * 10 ** 9),
-                }
-            ),
+            SystemProgram.transfer({
+                fromPubkey: wallet.publicKey,
+                toPubkey: quoteTokenAssociatedAddress,
+                lamports: Math.ceil(parseFloat(QUOTE_AMOUNT) * 10 ** 9),
+            }),
             createSyncNativeInstruction(quoteTokenAssociatedAddress, TOKEN_PROGRAM_ID),
             createAssociatedTokenAccountIdempotentInstruction(
                 wallet.publicKey,
@@ -302,6 +307,7 @@ async function buy(accountId: PublicKey, accountData: LiquidityStateV4) {
             ),
             ...innerTransaction.instructions,
         )
+
         const messageV0 = new TransactionMessage({
             payerKey: wallet.publicKey,
             recentBlockhash: latestBlockhash.blockhash,
@@ -309,12 +315,21 @@ async function buy(accountId: PublicKey, accountData: LiquidityStateV4) {
         }).compileToV0Message()
         const transaction = new VersionedTransaction(messageV0)
         transaction.sign([wallet, ...innerTransaction.signers])
+
+        if (JITO_MODE) {
+            if (JITO_ALL) {
+                await jitoWithAxios(transaction, wallet, latestBlockhash)
+            } else {
+                const result = await bundle([transaction], wallet)
+            }
+        } else {
+            await execute(transaction, latestBlockhash)
+        }
     } catch (e) {
         logger.debug(e)
         console.log(`Failed to buy token, ${accountData.baseMint}`)
     }
 }
-
 
 
 

@@ -1,1 +1,1 @@
-throw new Error('root module cannot be imported: import submodules instead. Check out README');
+throw new Error('noble-hashes have no entry-point: consult README for usage');

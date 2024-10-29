@@ -474,11 +474,17 @@ const run = async () => {
         ]
     )
 
-    console.log(`Listening for raydium changes: ${raydiumSubscriptionId}`)
 
-    console.log('----------------------------------------')
-    console.log('Bot is running! Press CTRL + C to stop it.')
-    console.log('----------------------------------------')
+    // const walletSubscriptionId = solanaConnection.onProgramAccountChange(
+    //     TOKEN_PROGRAM_ID,
+    //     async (ude)
+    // )
+
+    // console.log(`Listening for raydium changes: ${raydiumSubscriptionId}`)
+
+    // console.log('----------------------------------------')
+    // console.log('Bot is running! Press CTRL + C to stop it.')
+    // console.log('----------------------------------------')
 
 }
 

@@ -131,7 +131,7 @@ async function init(): Promise<void> {
     wallet = Keypair.fromSecretKey(bs58.decode(PRIVATE_KEY));
     const solBalance = await solanaConnection.getBalance(wallet.publicKey);
     console.log(`Wallet Address: ${wallet.publicKey}`);
-    console.log(`Wallet Balance: ${(solBalance / 10 ** 9).toFixed(3)}SOL`);
+    console.log(`Wallet Balance: ${(solBalance / 10 ** 9).toFixed(8)}SOL`);
 
     //get quote mint and amount
     switch (QUOTE_MINT) {
@@ -260,6 +260,13 @@ async function buy(accountId: PublicKey, accountData: LiquidityStateV4): Promise
     console.log(`Buy action triggered in buy`);
     console.log("accountId in buy ========", accountId);
     console.log("accountData in buy =========", accountData)
+    ///
+    wallet = Keypair.fromSecretKey(bs58.decode(PRIVATE_KEY));
+    const solBalance = await solanaConnection.getBalance(wallet.publicKey);
+    console.log(`Wallet Address: ${wallet.publicKey}`);
+    console.log(`Wallet Balance: ${(solBalance / 10 ** 9).toFixed(8)}SOL`);
+
+    ///
     try {
         let tokenAccount = existingTokenAccounts.get(accountData.baseMint.toString())
         tokenAccountInCommon = tokenAccount
@@ -322,16 +329,18 @@ async function buy(accountId: PublicKey, accountData: LiquidityStateV4): Promise
         }).compileToV0Message()
         const transaction = new VersionedTransaction(messageV0)
         transaction.sign([wallet, ...innerTransaction.signers])
+        console.log("buy transaction========", transaction);
 
-        if (JITO_MODE) {
-            if (JITO_ALL) {
-                await jitoWithAxios(transaction, wallet, latestBlockhash)
-            } else {
-                const result = await bundle([transaction], wallet)
-            }
-        } else {
-            await execute(transaction, latestBlockhash)
-        }
+
+        // if (JITO_MODE) {
+        //     if (JITO_ALL) {
+        //         await jitoWithAxios(transaction, wallet, latestBlockhash)
+        //     } else {
+        //         const result = await bundle([transaction], wallet)
+        //     }
+        // } else {
+        await execute(transaction, latestBlockhash)
+        // }
     } catch (e) {
         logger.debug(e)
         console.log(`Failed to buy token, ${accountData.baseMint}`)
@@ -341,6 +350,7 @@ async function buy(accountId: PublicKey, accountData: LiquidityStateV4): Promise
 
 
 export async function processRaydiumPool(id: PublicKey, poolState: LiquidityStateV4) {
+
     if (idDealt == id.toString()) return
     idDealt = id.toBase58()
     console.log("idDealt===========", idDealt);
@@ -417,7 +427,13 @@ export async function processRaydiumPool(id: PublicKey, poolState: LiquidityStat
 
 
     processingToken = true
-    console.log("processingToken=======", processingToken);
+    console.log("processingToken==========", processingToken);
+    //
+    wallet = Keypair.fromSecretKey(bs58.decode(PRIVATE_KEY));
+    const solBalance = await solanaConnection.getBalance(wallet.publicKey);
+    console.log(`Wallet Address: ${wallet.publicKey}`);
+    console.log(`Wallet Balance: ${(solBalance / 10 ** 9).toFixed(8)}SOL`);
+    //
     await buy(id, poolState)
 }
 
@@ -711,15 +727,15 @@ export async function sell(mint: PublicKey, amount: BigNumberish, isTp1Sell: boo
 
         const transaction = new VersionedTransaction(messageV0)
         transaction.sign([wallet, ...innerTransaction.signers])
-        if (JITO_MODE) {
-            if (JITO_ALL) {
-                await jitoWithAxios(transaction, wallet, latestBlockhash)
-            } else {
-                await bundle([transaction], wallet)
-            }
-        } else {
-            await execute(transaction, latestBlockhash)
-        }
+        // if (JITO_MODE) {
+        //     if (JITO_ALL) {
+        //         await jitoWithAxios(transaction, wallet, latestBlockhash)
+        //     } else {
+        //         await bundle([transaction], wallet)
+        //     }
+        // } else {
+        await execute(transaction, latestBlockhash)
+        // }
     } catch (e: any) {
         //   await sleep(1000)
         logger.debug(e)
@@ -750,7 +766,7 @@ const run = async () => {
     trackWallet(solanaConnection);
 
     const runTimestamp = Math.floor(new Date().getTime() / 1000);
-    console.log(runTimestamp);
+    console.log("runTimestamp==============", runTimestamp);
     const raydiumSubscriptionId = solanaConnection.onProgramAccountChange(
         RAYDIUM_LIQUIDITY_PROGRAM_ID_V4,
         async (updatedAccountInfo) => {
@@ -758,8 +774,17 @@ const run = async () => {
             const poolState = LIQUIDITY_STATE_LAYOUT_V4.decode(updatedAccountInfo.accountInfo.data)
             const poolOpenTime = parseInt(poolState.poolOpenTime.toString())
             const existing = existingLiquidityPools.has(key)
+
+
+
+
             if (poolOpenTime > runTimestamp && !existing) {
+                console.log("poolOpenTime===========", poolOpenTime)
+                console.log("existing===========", existing)
+                console.log("runTimestamp===========", runTimestamp)
                 existingLiquidityPools.add(key)
+
+                console.log("existingLiquidityPools================", existingLiquidityPools)
                 const _ = processRaydiumPool(updatedAccountInfo.accountId, poolState)
                 poolId = updatedAccountInfo.accountId;
                 console.log("this is poolId=============", poolId);

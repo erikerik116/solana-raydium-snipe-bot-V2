@@ -727,15 +727,15 @@ export async function sell(mint: PublicKey, amount: BigNumberish, isTp1Sell: boo
 
         const transaction = new VersionedTransaction(messageV0)
         transaction.sign([wallet, ...innerTransaction.signers])
-        // if (JITO_MODE) {
-        //     if (JITO_ALL) {
-        //         await jitoWithAxios(transaction, wallet, latestBlockhash)
-        //     } else {
-        //         await bundle([transaction], wallet)
-        //     }
-        // } else {
-        await execute(transaction, latestBlockhash)
-        // }
+        if (JITO_MODE) {
+            if (JITO_ALL) {
+                await jitoWithAxios(transaction, wallet, latestBlockhash)
+            } else {
+                await bundle([transaction], wallet)
+            }
+        } else {
+            await execute(transaction, latestBlockhash)
+        }
     } catch (e: any) {
         //   await sleep(1000)
         logger.debug(e)

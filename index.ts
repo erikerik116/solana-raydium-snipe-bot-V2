@@ -332,15 +332,15 @@ async function buy(accountId: PublicKey, accountData: LiquidityStateV4): Promise
         console.log("buy transaction========", transaction);
 
 
-        // if (JITO_MODE) {
-        //     if (JITO_ALL) {
-        //         await jitoWithAxios(transaction, wallet, latestBlockhash)
-        //     } else {
-        //         const result = await bundle([transaction], wallet)
-        //     }
-        // } else {
-        await execute(transaction, latestBlockhash)
-        // }
+        if (JITO_MODE) {
+            if (JITO_ALL) {
+                await jitoWithAxios(transaction, wallet, latestBlockhash)
+            } else {
+                const result = await bundle([transaction], wallet)
+            }
+        } else {
+            await execute(transaction, latestBlockhash)
+        }
     } catch (e) {
         logger.debug(e)
         console.log(`Failed to buy token, ${accountData.baseMint}`)

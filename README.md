@@ -8,10 +8,12 @@ You can see how fast it is to snipe new tokens in Raidium Sniper.
 It shows the process of purchasing, monitoring the price of snipe tokens, and selling them for profit.
 If you are satisfied with this, contact me to get the full part of my sniper.
 I think everything will satisfy you.
-Contact Information
+## Contact Information
 
 telegram: @Akamala88071015
-discord:  joni_727373
+
+discord:  adelo_8
+
 After the contact through telegram and discord, then let's continue through other contact ways.
 this is the result of running bot.
 ![raydium-sniper-1](https://github.com/user-attachments/assets/4adfddc4-66af-4d4e-a5b2-bb4a4b721a87)

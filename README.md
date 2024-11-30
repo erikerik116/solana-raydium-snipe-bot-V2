@@ -10,9 +10,9 @@ If you are satisfied with this, contact me to get the full part of my sniper.
 I think everything will satisfy you.
 ## Contact Information
 
-telegram: @Akamala88071015
+telegram: @erikerik116
 
-discord:  adelo_8
+discord:  @erikerik116
 
 After the contact through telegram and discord, then let's continue through other contact ways.
 this is the result of running bot.
